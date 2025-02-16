@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOCX to PDF Converter</title>
+    <script>
+        function handleFileUpload() {
+            const fileInput = document.getElementById('fileInput');
+            if (fileInput.files.length > 0) {
+                document.getElementById('convertButton').style.display = 'block';
+            }
+        }
+
+        function convertFile() {
+            const fileInput = document.getElementById('fileInput');
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            fetch('/upload', { method: 'POST', body: formData })
+                .then(response => response.text())
+                .then(filename => {
+                    if (filename) {
+                        setTimeout(() => {
+                            const link = document.createElement('a');
+                            link.href = `/download/${filename}`;
+                            link.download = filename;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        }, 2000);
+                    } else {
+                        alert('Chyba: PDF nebol vygenerovaný.');
+                    }
+                })
+                .catch(error => alert('Chyba pri konverzii súboru.'));
+        }
+    </script>
+</head>
+<body>
+    <h2>Konvertovanie DOCX na PDF</h2>
+    <input type="file" id="fileInput" accept=".docx" onchange="handleFileUpload()">
+    <button id="convertButton" style="display:none;" onclick="convertFile()">Convert</button>
+</body>
+</html>
