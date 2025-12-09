@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="sk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Multifunkčný konvertor (lokálny)</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 24px; }
+    .box { max-width: 720px; margin: auto; padding: 16px; border: 1px solid #ddd; border-radius: 8px; }
+    label { display:block; margin-top: 10px; }
+    .progress { height: 18px; background:#eee; border-radius: 9px; overflow:hidden; margin-top:8px; }
+    .progress > div { height:100%; width:0%; background:linear-gradient(90deg,#7db9ff,#3a86ff); transition: width 0.3s;}
+    .hidden { display:none; }
+    .info { margin-top: 10px; font-size: 0.95rem; color:#333; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>Multifunkčný konvertor (lokálny)</h2>
+    <p>Vyberte súbor, zvoľte cieľový formát a stlačte Konvertovať. Konverzia beží cez LibreOffice (headless).</p>
+
+    <form id="uploadForm">
+      <label>Vyberte súbor:
+        <input type="file" id="fileInput" name="file" required />
+      </label>
+      <label>Cieľový formát:
+        <select id="targetSelect" name="target">
+          <option value="pdf">PDF</option>
+          <option value="docx">DOCX</option>
+          <option value="odt">ODT</option>
+          <option value="html">HTML</option>
+          <option value="txt">TXT</option>
+          <option value="pptx">PPTX</option>
+          <option value="xlsx">XLSX</option>
+        </select>
+      </label>
+      <button type="submit">Konvertovať</button>
+    </form>
+
+    <div id="statusArea" class="hidden">
+      <div class="info" id="jobInfo">Stav: čaká sa...</div>
+      <div class="progress"><div id="progressBar"></div></div>
+      <div id="downloadArea" class="info hidden"></div>
+    </div>
+
+    <div id="errorArea" class="info" style="color: red;"></div>
+  </div>
+
+<script>
+const form = document.getElementById("uploadForm");
+const statusArea = document.getElementById("statusArea");
+const jobInfo = document.getElementById("jobInfo");
+const progressBar = document.getElementById("progressBar");
+const downloadArea = document.getElementById("downloadArea");
+const errorArea = document.getElementById("errorArea");
+
+form.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  errorArea.textContent = "";
+  downloadArea.classList.add("hidden");
+  const fileInput = document.getElementById("fileInput");
+  if (!fileInput.files.length) { errorArea.textContent = "Vyberte súbor."; return; }
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+  formData.append("target", document.getElementById("targetSelect").value);
+
+  statusArea.classList.remove("hidden");
+  jobInfo.textContent = "Nahrávam súbor...";
+
+  try {
+    const res = await fetch("/api/upload", { method: "POST", body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(()=>null);
+      throw new Error(err && err.error ? err.error : `Upload failed (${res.status})`);
+    }
+    const data = await res.json();
+    const jobId = data.job_id;
+    jobInfo.textContent = "Prijaté. ID jobu: " + jobId;
+    progressBar.style.width = "10%";
+    pollStatus(jobId);
+  } catch (e) {
+    errorArea.textContent = e.message;
+    statusArea.classList.add("hidden");
+  }
+});
+
+async function pollStatus(jobId) {
+  let attempt = 0;
+  const interval = 1500;
+  const maxAttempts = 120;
+  const timer = setInterval(async () => {
+    attempt++;
+    try {
+      const res = await fetch(`/api/status/${jobId}`);
+      if (!res.ok) {
+        clearInterval(timer);
+        jobInfo.textContent = "Chyba pri načítaní stavu.";
+        return;
+      }
+      const j = await res.json();
+      if (j.status === "pending") {
+        jobInfo.textContent = "Čaká sa na spustenie...";
+        progressBar.style.width = "10%";
+      } else if (j.status === "running") {
+        jobInfo.textContent = "Konvertuje sa...";
+        // animate progress while running
+        progressBar.style.width = (20 + Math.min(60, attempt)) + "%";
+      } else if (j.status === "done") {
+        clearInterval(timer);
+        progressBar.style.width = "100%";
+        jobInfo.textContent = "Hotovo. Stiahnite si výsledok:";
+        downloadArea.innerHTML = `<a href="${j.download_url}">${j.output_filename || 'Stiahnuť'}</a>`;
+        downloadArea.classList.remove("hidden");
+      } else if (j.status === "error") {
+        clearInterval(timer);
+        jobInfo.textContent = "Chyba počas konverzie.";
+        errorArea.textContent = j.error || "Neznáma chyba";
+        progressBar.style.width = "0%";
+      }
+      if (attempt > maxAttempts) {
+        clearInterval(timer);
+        jobInfo.textContent = "Timeout konverzie.";
+        errorArea.textContent = "Konverzia trvala príliš dlho.";
+      }
+    } catch (e) {
+      clearInterval(timer);
+      jobInfo.textContent = "Chyba pri komunikácii so serverom.";
+      errorArea.textContent = e.message;
+    }
+  }, interval);
+}
+</script>
+</body>
+</html>
